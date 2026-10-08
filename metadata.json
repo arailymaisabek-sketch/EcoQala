@@ -1,0 +1,7 @@
+{
+  "name": "EcoQala",
+  "description": "Экологическая платформа Do-to-Earn в Казахстане: совершайте действия, получайте ECO-токены в сети Solana Devnet и обменивайте на награды.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
