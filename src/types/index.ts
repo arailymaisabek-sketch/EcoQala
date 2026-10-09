@@ -34,7 +34,9 @@ export interface VerificationResult {
   city: string;
   timestamp: number;
   solanaTxSignature?: string;
-  status: 'APPROVED' | 'REJECTED';
+  status: 'APPROVED' | 'REJECTED' | 'NEEDS_REVIEW' | 'NO_PHOTO';
+  statusLabelKz?: string;
+  reasonKz?: string;
 }
 
 export interface MarketplaceItem {

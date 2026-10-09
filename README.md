@@ -45,3 +45,11 @@ npm install
 
 # Start local development server
 npm run dev
+```
+
+Open your browser at `http://localhost:3000`.
+
+---
+
+## Team
+- **EcoQala Core Team:** Environmental product engineers, smart contract developers, and civic tech advocates dedicated to making green habits rewarding and verifiable.
