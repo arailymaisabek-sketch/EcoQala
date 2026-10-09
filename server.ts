@@ -7,7 +7,7 @@ dotenv.config();
 
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
+  const PORT = 3000;
 
   // JSON body parser with 20mb limit for high-res photo uploads
   app.use(express.json({ limit: '20mb' }));

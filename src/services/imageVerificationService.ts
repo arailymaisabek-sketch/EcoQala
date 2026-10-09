@@ -26,7 +26,10 @@ export interface VerifyImageResult {
 
 // Server-side Gemini client using the recommended SDK
 function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey =
+    process.env.GEMINI_API_KEY ||
+    (typeof process !== 'undefined' && process.env?.API_KEY);
+
   if (!apiKey) {
     return null;
   }
