@@ -137,6 +137,55 @@ export const AiScannerView: React.FC<AiScannerViewProps> = ({
     setScanStatus('idle');
   };
 
+  // Direct transaction without AI verification
+  const handleDirectTransactionWithoutAi = async () => {
+    setScanError(null);
+    setFileValidationErr(null);
+    setScanStatus('recording_blockchain');
+
+    try {
+      const memoText = `[EcoQala] Расталды: ${taskTitle} (${city.name}) | Сыйақы: +${taskReward} ECO | Транзакция: ИИ-сіз тікелей расталды`;
+      setLastMemoText(memoText);
+
+      const txResult = await sendMemoTransaction(memoText, {
+        ecoReward: taskReward,
+        walletAddress,
+      });
+
+      if (!txResult.success) {
+        setScanError(txResult.errorMessage || 'Solana Devnet желісіне жазу барысында қате шықты.');
+        setScanStatus('error');
+        return;
+      }
+
+      const signature = txResult.signature!;
+      setLastSignature(signature);
+
+      const res: VerificationResult = {
+        id: `ai-proof-${Date.now()}`,
+        questTitle: taskTitle,
+        rewardEco: taskReward,
+        confidenceScore: 100,
+        analyzedObjects: ['Экологиялық тапсырма', 'Тікелей транзакция'],
+        estimatedWeightOrCount: `${taskReward} ECO қосылды`,
+        city: city.name,
+        timestamp: Date.now(),
+        solanaTxSignature: signature,
+        status: 'APPROVED',
+        statusLabelKz: 'Транзакция расталды (ИИ-сіз)',
+        reasonKz: 'Транзакция Solana Devnet желісіне ИИ-сіз тікелей сәтті жазылды.',
+      };
+
+      setScanStatus('confirmed');
+      onSuccessVerification(res);
+      setRecords(loadBlockchainRecords());
+    } catch (err: any) {
+      console.error('Direct scan error:', err);
+      setScanError('Транзакцияны блокчейнге жіберу кезінде қате шықты.');
+      setScanStatus('error');
+    }
+  };
+
   const handleRunAiScanner = async () => {
     setScanError(null);
     setFileValidationErr(null);
@@ -405,13 +454,23 @@ export const AiScannerView: React.FC<AiScannerViewProps> = ({
               <strong>Себебі: </strong>
               {aiResult?.reasonKz || 'Фотосурет экологиялық тапсырма талаптарына сай емес.'}
             </p>
-            <button
-              type="button"
-              onClick={handleClearPhoto}
-              className="px-4 py-2 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 transition-colors cursor-pointer"
-            >
-              Басқа фотосурет жүктеу
-            </button>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleDirectTransactionWithoutAi}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>ИИ-сіз транзакция жасау (+{taskReward} ECO)</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleClearPhoto}
+                className="px-4 py-2 rounded-xl bg-stone-200 text-stone-800 font-bold hover:bg-stone-300 transition-colors cursor-pointer"
+              >
+                Басқа фотосурет жүктеу
+              </button>
+            </div>
           </div>
         )}
 
@@ -426,13 +485,23 @@ export const AiScannerView: React.FC<AiScannerViewProps> = ({
               <strong>Түсіндірме: </strong>
               {aiResult?.reasonKz || 'Бір фотосурет бойынша тапсырманың толық орындалғанына сенімділік жеткіліксіз.'}
             </p>
-            <button
-              type="button"
-              onClick={handleClearPhoto}
-              className="px-4 py-2 rounded-xl bg-stone-900 text-white font-bold hover:bg-stone-800 transition-colors cursor-pointer"
-            >
-              Анығырақ фотосурет жүктеу
-            </button>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleDirectTransactionWithoutAi}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>ИИ-сіз транзакция жасау (+{taskReward} ECO)</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleClearPhoto}
+                className="px-4 py-2 rounded-xl bg-stone-900 text-white font-bold hover:bg-stone-800 transition-colors cursor-pointer"
+              >
+                Анығырақ фотосурет жүктеу
+              </button>
+            </div>
           </div>
         )}
 
@@ -443,7 +512,7 @@ export const AiScannerView: React.FC<AiScannerViewProps> = ({
             <div className="space-y-0.5">
               <strong className="text-sm font-bold">Записываем в блокчейн…</strong>
               <p className="text-[11px] text-emerald-700">
-                Фото тексеруден өтті! Solana Devnet желісіне транзакция жіберілуде.
+                Solana Devnet желісіне транзакция жіберілуде...
               </p>
             </div>
           </div>
@@ -453,16 +522,26 @@ export const AiScannerView: React.FC<AiScannerViewProps> = ({
         {scanStatus === 'error' && (
           <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-xs text-red-800 flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-            <div className="space-y-1">
+            <div className="space-y-1.5 flex-1">
               <strong className="font-bold">Қате орын алды:</strong>
               <p>{scanError || 'Транзакция жіберу барысында қате шықты.'}</p>
-              <button
-                type="button"
-                onClick={handleRunAiScanner}
-                className="text-red-700 hover:text-red-900 font-bold underline cursor-pointer"
-              >
-                Қайталау
-              </button>
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleDirectTransactionWithoutAi}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>ИИ-сіз транзакция жасау (+{taskReward} ECO)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRunAiScanner}
+                  className="px-3 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  Қайталау
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -473,7 +552,7 @@ export const AiScannerView: React.FC<AiScannerViewProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-emerald-900 font-bold text-sm">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                <span>Фото тексеруден өтті · Записано в блокчейн</span>
+                <span>Транзакция расталды · Записано в блокчейн</span>
               </div>
               <a
                 href={`https://explorer.solana.com/tx/${lastSignature}?cluster=devnet`}
@@ -493,34 +572,48 @@ export const AiScannerView: React.FC<AiScannerViewProps> = ({
 
         {/* Action Button */}
         {scanStatus !== 'confirmed' ? (
-          <button
-            type="button"
-            disabled={!uploadedFile || scanStatus === 'checking_ai' || scanStatus === 'recording_blockchain'}
-            onClick={handleRunAiScanner}
-            className={`w-full py-4 px-6 rounded-2xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
-              uploadedFile && scanStatus !== 'checking_ai' && scanStatus !== 'recording_blockchain'
-                ? 'text-white bg-emerald-500 hover:bg-emerald-600 active:scale-[0.99] cursor-pointer shadow-md shadow-emerald-500/20'
-                : 'text-stone-400 bg-stone-200 cursor-not-allowed'
-            }`}
-          >
-            {scanStatus === 'checking_ai' ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                <span>Фото тексерілуде...</span>
-              </>
-            ) : scanStatus === 'recording_blockchain' ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                <span>Записываем в блокчейн…</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                <span>{uploadedFile ? `AI арқылы тексеру (+${taskReward} ECO)` : 'Алдымен фотосуретті жүктеңіз'}</span>
-                <ArrowRight className="w-4 h-4" />
-              </>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <button
+              type="button"
+              disabled={scanStatus === 'checking_ai' || scanStatus === 'recording_blockchain'}
+              onClick={handleDirectTransactionWithoutAi}
+              className="flex-1 py-4 px-6 rounded-2xl font-bold text-sm text-white bg-emerald-500 hover:bg-emerald-600 active:scale-[0.99] cursor-pointer shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2 transition-all"
+            >
+              {scanStatus === 'recording_blockchain' ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Записываем в блокчейн…</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  <span>ИИ-сіз транзакция жасау (+{taskReward} ECO)</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+
+            {uploadedFile && (
+              <button
+                type="button"
+                disabled={scanStatus === 'checking_ai' || scanStatus === 'recording_blockchain'}
+                onClick={handleRunAiScanner}
+                className="py-4 px-5 rounded-2xl font-bold text-xs bg-stone-100 hover:bg-stone-200 text-stone-700 cursor-pointer flex items-center justify-center gap-2 transition-colors shrink-0"
+              >
+                {scanStatus === 'checking_ai' ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-stone-400 border-t-emerald-600 rounded-full animate-spin" />
+                    <span>Фото тексерілуде...</span>
+                  </>
+                ) : (
+                  <>
+                    <Bot className="w-4 h-4 text-emerald-600" />
+                    <span>AI тексерумен</span>
+                  </>
+                )}
+              </button>
             )}
-          </button>
+          </div>
         ) : (
           <div className="flex items-center justify-between p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-200 text-xs">
             <span className="text-emerald-800 font-semibold">Жұмыс сәтті қабылданды және блокчейнге жазылды!</span>

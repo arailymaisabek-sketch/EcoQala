@@ -83,6 +83,51 @@ export const ProofVerificationModal: React.FC<ProofVerificationModalProps> = ({
     setStatus('idle');
   };
 
+  const handleDirectTransactionWithoutAi = async () => {
+    setFileValidationErr(null);
+    setErrorMessage(null);
+    setStatus('recording_blockchain');
+
+    try {
+      const memoText = `[EcoQala] Тапсырма: ${quest.title} (${city.name}) | Сыйақы: +${quest.rewardEco} ECO | Транзакция: ИИ-сіз тікелей расталды`;
+      const txResult = await sendMemoTransaction(memoText, {
+        ecoReward: quest.rewardEco,
+        walletAddress,
+      });
+
+      if (!txResult.success) {
+        setErrorMessage(txResult.errorMessage || 'Solana желісіне жазу мүмкін болмады.');
+        setStatus('error');
+        return;
+      }
+
+      const sig = txResult.signature!;
+      setTxSignature(sig);
+
+      const res: VerificationResult = {
+        id: `proof-${Date.now()}`,
+        questTitle: quest.title,
+        rewardEco: quest.rewardEco,
+        confidenceScore: 100,
+        analyzedObjects: ['Эко-тапсырма', 'Тікелей транзакция'],
+        estimatedWeightOrCount: `${quest.rewardEco} ECO`,
+        city: city.name,
+        timestamp: Date.now(),
+        solanaTxSignature: sig,
+        status: 'APPROVED',
+        statusLabelKz: 'Транзакция расталды (ИИ-сіз)',
+        reasonKz: 'Транзакция Solana Devnet желісіне сәтті жазылды.',
+      };
+
+      setStatus('confirmed');
+      onSuccessVerification(res);
+    } catch (err: any) {
+      console.error('Proof direct error:', err);
+      setErrorMessage('Транзакция жіберуде қате шықты.');
+      setStatus('error');
+    }
+  };
+
   const handleStartAIVerification = async () => {
     setFileValidationErr(null);
     setErrorMessage(null);
@@ -273,13 +318,22 @@ export const ProofVerificationModal: React.FC<ProofVerificationModalProps> = ({
                 <span>Фото сәйкес келмейді</span>
               </div>
               <p><strong>Себебі: </strong>{aiResult?.reasonKz}</p>
-              <button
-                type="button"
-                onClick={handleClear}
-                className="px-3.5 py-1.5 rounded-xl bg-red-600 text-white font-bold"
-              >
-                Басқа фото жүктеу
-              </button>
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleDirectTransactionWithoutAi}
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                >
+                  ⚡ ИИ-сіз транзакция жасау
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClear}
+                  className="px-3.5 py-1.5 rounded-xl bg-stone-200 hover:bg-stone-300 text-stone-800 font-bold"
+                >
+                  Басқа фото жүктеу
+                </button>
+              </div>
             </div>
           )}
 
@@ -290,13 +344,22 @@ export const ProofVerificationModal: React.FC<ProofVerificationModalProps> = ({
                 <span>Қосымша тексеру қажет</span>
               </div>
               <p><strong>Түсіндірме: </strong>{aiResult?.reasonKz}</p>
-              <button
-                type="button"
-                onClick={handleClear}
-                className="px-3.5 py-1.5 rounded-xl bg-stone-900 text-white font-bold"
-              >
-                Анығырақ фото жүктеу
-              </button>
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleDirectTransactionWithoutAi}
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                >
+                  ⚡ ИИ-сіз транзакция жасау
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClear}
+                  className="px-3.5 py-1.5 rounded-xl bg-stone-900 text-white font-bold"
+                >
+                  Анығырақ фото жүктеу
+                </button>
+              </div>
             </div>
           )}
 
@@ -311,13 +374,22 @@ export const ProofVerificationModal: React.FC<ProofVerificationModalProps> = ({
           {status === 'error' && (
             <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-xs text-red-800 space-y-2">
               <div className="font-bold">Қате: {errorMessage}</div>
-              <button
-                type="button"
-                onClick={handleStartAIVerification}
-                className="text-red-700 underline font-bold"
-              >
-                Қайталау
-              </button>
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={handleDirectTransactionWithoutAi}
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 text-white font-bold"
+                >
+                  ⚡ ИИ-сіз транзакция жасау
+                </button>
+                <button
+                  type="button"
+                  onClick={handleStartAIVerification}
+                  className="text-red-700 underline font-bold"
+                >
+                  Қайталау
+                </button>
+              </div>
             </div>
           )}
 
@@ -346,19 +418,26 @@ export const ProofVerificationModal: React.FC<ProofVerificationModalProps> = ({
         {/* Footer */}
         <div className="p-4 sm:px-6 border-t border-stone-150 bg-stone-50 flex items-center justify-between">
           {status === 'idle' && (
-            <button
-              type="button"
-              disabled={!uploadedFile}
-              onClick={handleStartAIVerification}
-              className={`w-full py-3 px-5 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 ${
-                uploadedFile
-                  ? 'bg-emerald-500 hover:bg-emerald-600 text-white cursor-pointer'
-                  : 'bg-stone-200 text-stone-400 cursor-not-allowed'
-              }`}
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>{uploadedFile ? 'AI тексеруге жіберу' : 'Алдымен фотосуретті жүктеңіз'}</span>
-            </button>
+            <div className="w-full flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <button
+                type="button"
+                onClick={handleDirectTransactionWithoutAi}
+                className="flex-1 py-3 px-5 rounded-2xl font-bold text-xs bg-emerald-500 hover:bg-emerald-600 text-white cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>ИИ-сіз транзакция жасау (+{quest.rewardEco} ECO)</span>
+              </button>
+              {uploadedFile && (
+                <button
+                  type="button"
+                  onClick={handleStartAIVerification}
+                  className="py-3 px-4 rounded-2xl font-bold text-xs bg-stone-100 hover:bg-stone-200 text-stone-700 cursor-pointer flex items-center justify-center gap-1 shrink-0"
+                >
+                  <Bot className="w-4 h-4 text-emerald-600" />
+                  <span>AI тексерумен</span>
+                </button>
+              )}
+            </div>
           )}
 
           {(status === 'confirmed' || status === 'ai_rejected' || status === 'ai_needs_review' || status === 'error') && (

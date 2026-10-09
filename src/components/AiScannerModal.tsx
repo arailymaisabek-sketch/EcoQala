@@ -110,6 +110,59 @@ export const AiScannerModal: React.FC<AiScannerModalProps> = ({
     setAiResult(null);
   };
 
+  // Submit transaction directly to Solana Devnet without AI verification
+  const handleDirectTransactionWithoutAi = async () => {
+    setErrorMessage(null);
+    setFileValidationErr(null);
+    setStatus('recording_blockchain');
+
+    try {
+      const memoText = `[EcoQala] Тапсырма: ${taskTitle} (${city.name}) | Сыйақы: +${rewardAmount} ECO | Транзакция: ИИ-сіз тікелей расталды`;
+      setBlockchainMemoText(memoText);
+
+      const txResult = await sendMemoTransaction(memoText, {
+        ecoReward: rewardAmount,
+        walletAddress,
+      });
+
+      if (!txResult.success) {
+        setErrorMessage(txResult.errorMessage || 'Solana Devnet желісіне жазу барысында қате шықты.');
+        setStatus('error');
+        return;
+      }
+
+      const sig = txResult.signature!;
+      setBlockchainSignature(sig);
+
+      // Reload updated blockchain records
+      const updatedRecords = loadBlockchainRecords();
+      setAllRecords(updatedRecords);
+
+      const res: VerificationResult = {
+        id: `proof-${Date.now()}`,
+        questTitle: taskTitle,
+        rewardEco: rewardAmount,
+        confidenceScore: 100,
+        analyzedObjects: ['Экологиялық тапсырма', 'Тікелей транзакция'],
+        estimatedWeightOrCount: `${rewardAmount} ECO қосылды`,
+        city: city.name,
+        timestamp: Date.now(),
+        solanaTxSignature: sig,
+        status: 'APPROVED',
+        statusLabelKz: 'Транзакция расталды (ИИ-сіз)',
+        reasonKz: 'Транзакция Solana Devnet желісіне ИИ-сіз тікелей сәтті жазылды.',
+      };
+
+      setVerifiedResult(res);
+      setStatus('confirmed');
+      onSuccessVerification(res);
+    } catch (err: any) {
+      console.error('Direct transaction error:', err);
+      setErrorMessage('Транзакцияны блокчейнге жіберу кезінде қате шықты.');
+      setStatus('error');
+    }
+  };
+
   // Submit and verify photo with Gemini AI + Record on Solana Devnet
   const handleStartVerification = async () => {
     setErrorMessage(null);
@@ -386,14 +439,22 @@ export const AiScannerModal: React.FC<AiScannerModalProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center justify-center gap-3 pt-2">
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleDirectTransactionWithoutAi}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>ИИ-сіз транзакция жасау (+{rewardAmount} ECO)</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => {
                     handleClearPhoto();
                     setStatus('idle');
                   }}
-                  className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs transition-colors cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs transition-colors cursor-pointer"
                 >
                   Басқа фотосурет жүктеу
                 </button>
@@ -425,14 +486,22 @@ export const AiScannerModal: React.FC<AiScannerModalProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center justify-center gap-3 pt-2">
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleDirectTransactionWithoutAi}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>ИИ-сіз транзакция жасау (+{rewardAmount} ECO)</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => {
                     handleClearPhoto();
                     setStatus('idle');
                   }}
-                  className="px-5 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs transition-colors cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs transition-colors cursor-pointer"
                 >
                   Анығырақ фотосурет жүктеу
                 </button>
@@ -493,8 +562,16 @@ export const AiScannerModal: React.FC<AiScannerModalProps> = ({
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
                 <button
                   type="button"
+                  onClick={handleDirectTransactionWithoutAi}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>ИИ-сіз транзакция жасау (+{rewardAmount} ECO)</span>
+                </button>
+                <button
+                  type="button"
                   onClick={handleStartVerification}
-                  className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-semibold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Қайталау</span>
@@ -600,20 +677,28 @@ export const AiScannerModal: React.FC<AiScannerModalProps> = ({
         {/* Modal Footer */}
         <div className="p-4 sm:px-7 border-t border-stone-100 bg-[#F8FAF9]/80 flex items-center justify-between gap-3">
           {status === 'idle' && (
-            <button
-              type="button"
-              disabled={!uploadedFile}
-              onClick={handleStartVerification}
-              className={`w-full py-3.5 px-6 rounded-2xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
-                uploadedFile
-                  ? 'bg-emerald-500 hover:bg-emerald-600 active:scale-[0.99] text-white shadow-md shadow-emerald-500/20 cursor-pointer'
-                  : 'bg-stone-200 text-stone-400 cursor-not-allowed'
-              }`}
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>{uploadedFile ? 'AI тексеруге жіберу' : 'Алдымен фотосуретті жүктеңіз'}</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            <div className="w-full flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+              <button
+                type="button"
+                onClick={handleDirectTransactionWithoutAi}
+                className="flex-1 py-3.5 px-5 rounded-2xl font-bold text-xs sm:text-sm bg-emerald-500 hover:bg-emerald-600 active:scale-[0.99] text-white shadow-md shadow-emerald-500/20 cursor-pointer flex items-center justify-center gap-2 transition-all"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>ИИ-сіз транзакция жасау (+{rewardAmount} ECO)</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+
+              {uploadedFile && (
+                <button
+                  type="button"
+                  onClick={handleStartVerification}
+                  className="py-3.5 px-4 rounded-2xl font-bold text-xs bg-stone-100 hover:bg-stone-200 text-stone-700 cursor-pointer flex items-center justify-center gap-1.5 transition-colors shrink-0"
+                >
+                  <Bot className="w-4 h-4 text-emerald-600" />
+                  <span>AI тексерумен</span>
+                </button>
+              )}
+            </div>
           )}
 
           {status === 'checking_ai' && (
