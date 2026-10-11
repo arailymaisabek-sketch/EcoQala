@@ -138,68 +138,87 @@ export async function analyzeEcoPhoto(payload: VerifyImagePayload): Promise<Veri
 - isCompliant: Тек status === "APPROVED" болғанда true, әйтпесе false.
 `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              data: cleanBase64,
-              mimeType: normalizedMime,
+    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+    let response: any = null;
+    let lastError: any = null;
+
+    for (const modelName of candidateModels) {
+      try {
+        response = await ai.models.generateContent({
+          model: modelName,
+          contents: {
+            parts: [
+              {
+                inlineData: {
+                  data: cleanBase64,
+                  mimeType: normalizedMime,
+                },
+              },
+              {
+                text: prompt,
+              },
+            ],
+          },
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                status: {
+                  type: Type.STRING,
+                  description: 'APPROVED, REJECTED, or NEEDS_REVIEW',
+                },
+                statusLabelKz: {
+                  type: Type.STRING,
+                  description: 'Қазақша мәртебе атауы',
+                },
+                reasonKz: {
+                  type: Type.STRING,
+                  description: 'Қазақша толық түсініктеме',
+                },
+                confidenceScore: {
+                  type: Type.NUMBER,
+                  description: '0 to 100 score',
+                },
+                detectedObjects: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                  description: 'Танылған объектілер',
+                },
+                metricsSummary: {
+                  type: Type.STRING,
+                  description: 'Көлем қорытындысы',
+                },
+                isCompliant: {
+                  type: Type.BOOLEAN,
+                  description: 'True only if fully compliant',
+                },
+              },
+              required: [
+                'status',
+                'statusLabelKz',
+                'reasonKz',
+                'confidenceScore',
+                'detectedObjects',
+                'metricsSummary',
+                'isCompliant',
+              ],
             },
           },
-          {
-            text: prompt,
-          },
-        ],
-      },
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            status: {
-              type: Type.STRING,
-              description: 'APPROVED, REJECTED, or NEEDS_REVIEW',
-            },
-            statusLabelKz: {
-              type: Type.STRING,
-              description: 'Қазақша мәртебе атауы',
-            },
-            reasonKz: {
-              type: Type.STRING,
-              description: 'Қазақша толық түсініктеме',
-            },
-            confidenceScore: {
-              type: Type.NUMBER,
-              description: '0 to 100 score',
-            },
-            detectedObjects: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: 'Танылған объектілер',
-            },
-            metricsSummary: {
-              type: Type.STRING,
-              description: 'Көлем қорытындысы',
-            },
-            isCompliant: {
-              type: Type.BOOLEAN,
-              description: 'True only if fully compliant',
-            },
-          },
-          required: [
-            'status',
-            'statusLabelKz',
-            'reasonKz',
-            'confidenceScore',
-            'detectedObjects',
-            'metricsSummary',
-            'isCompliant',
-          ],
-        },
-      },
-    });
+        });
+
+        if (response && response.text) {
+          break;
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`Vision model ${modelName} failed, trying fallback:`, err?.message || err);
+      }
+    }
+
+    if (!response || !response.text) {
+      throw lastError || new Error('All vision models failed to respond.');
+    }
 
     const text = response.text?.trim() || '{}';
     const parsed = JSON.parse(text);

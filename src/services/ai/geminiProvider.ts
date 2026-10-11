@@ -4,7 +4,9 @@ import { AiComparisonOutput } from '../../types/cleanupVerification';
 
 export class GeminiVisionProvider implements AiVisionProvider {
   public readonly name = 'gemini';
-  public readonly modelName = 'gemini-3.8-flash';
+  public readonly modelName = 'gemini-3.1-flash-lite';
+
+  private readonly fallbackModels = ['gemini-3.1-flash-lite', 'gemini-3.8-flash'];
 
   private getClient(): GoogleGenAI | null {
     const apiKey =
@@ -77,86 +79,104 @@ Return pure JSON matching the specified schema.
 Provide "reason" in English, and also provide clear concise explanations in Kazakh ("reasonKz") and Russian ("reasonRu").
 `;
 
-    const response = await ai.models.generateContent({
-      model: this.modelName,
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: 'BEFORE CLEANUP IMAGE:' },
+    let response: any = null;
+    let lastError: any = null;
+
+    for (const modelToTry of this.fallbackModels) {
+      try {
+        response = await ai.models.generateContent({
+          model: modelToTry,
+          contents: [
             {
-              inlineData: {
-                data: cleanBeforeB64,
-                mimeType: params.beforeImage.mimeType || 'image/jpeg',
-              },
+              role: 'user',
+              parts: [
+                { text: 'BEFORE CLEANUP IMAGE:' },
+                {
+                  inlineData: {
+                    data: cleanBeforeB64,
+                    mimeType: params.beforeImage.mimeType || 'image/jpeg',
+                  },
+                },
+                { text: 'AFTER CLEANUP IMAGE:' },
+                {
+                  inlineData: {
+                    data: cleanAfterB64,
+                    mimeType: params.afterImage.mimeType || 'image/jpeg',
+                  },
+                },
+                { text: promptText },
+              ],
             },
-            { text: 'AFTER CLEANUP IMAGE:' },
-            {
-              inlineData: {
-                data: cleanAfterB64,
-                mimeType: params.afterImage.mimeType || 'image/jpeg',
-              },
-            },
-            { text: promptText },
           ],
-        },
-      ],
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            sameLocation: { type: Type.BOOLEAN },
-            litterBefore: { type: Type.BOOLEAN },
-            litterAfter: { type: Type.BOOLEAN },
-            visibleImprovement: { type: Type.BOOLEAN },
-            duplicateDetected: { type: Type.BOOLEAN },
-            suspiciousEditing: { type: Type.BOOLEAN },
-            imageQuality: {
-              type: Type.STRING,
-              description: 'poor, fair, good, or excellent',
-            },
-            confidence: {
-              type: Type.NUMBER,
-              description: 'Confidence between 0.00 and 1.00',
-            },
-            recommendation: {
-              type: Type.STRING,
-              description: 'approved, manual_review, rejected, or retake_required',
-            },
-            reason: { type: Type.STRING },
-            reasonKz: { type: Type.STRING },
-            reasonRu: { type: Type.STRING },
-            detectedBeforeObjects: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-            },
-            detectedAfterObjects: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-            },
-            estimatedLitterRemovedKg: { type: Type.NUMBER },
-            limitations: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                sameLocation: { type: Type.BOOLEAN },
+                litterBefore: { type: Type.BOOLEAN },
+                litterAfter: { type: Type.BOOLEAN },
+                visibleImprovement: { type: Type.BOOLEAN },
+                duplicateDetected: { type: Type.BOOLEAN },
+                suspiciousEditing: { type: Type.BOOLEAN },
+                imageQuality: {
+                  type: Type.STRING,
+                  description: 'poor, fair, good, or excellent',
+                },
+                confidence: {
+                  type: Type.NUMBER,
+                  description: 'Confidence between 0.00 and 1.00',
+                },
+                recommendation: {
+                  type: Type.STRING,
+                  description: 'approved, manual_review, rejected, or retake_required',
+                },
+                reason: { type: Type.STRING },
+                reasonKz: { type: Type.STRING },
+                reasonRu: { type: Type.STRING },
+                detectedBeforeObjects: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                },
+                detectedAfterObjects: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                },
+                estimatedLitterRemovedKg: { type: Type.NUMBER },
+                limitations: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                },
+              },
+              required: [
+                'sameLocation',
+                'litterBefore',
+                'litterAfter',
+                'visibleImprovement',
+                'duplicateDetected',
+                'suspiciousEditing',
+                'imageQuality',
+                'confidence',
+                'recommendation',
+                'reason',
+                'limitations',
+              ],
             },
           },
-          required: [
-            'sameLocation',
-            'litterBefore',
-            'litterAfter',
-            'visibleImprovement',
-            'duplicateDetected',
-            'suspiciousEditing',
-            'imageQuality',
-            'confidence',
-            'recommendation',
-            'reason',
-            'limitations',
-          ],
-        },
-      },
-    });
+        });
+
+        if (response && response.text) {
+          break;
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`Gemini model ${modelToTry} attempt failed, trying next fallback:`, err?.message || err);
+      }
+    }
+
+    if (!response || !response.text) {
+      throw lastError || new Error('All Gemini model candidates failed to respond.');
+    }
 
     const text = response.text?.trim() || '{}';
     const parsed = JSON.parse(text);
