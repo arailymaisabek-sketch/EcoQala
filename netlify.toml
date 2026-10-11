@@ -4,6 +4,11 @@
   functions = "netlify/functions"
 
 [[redirects]]
+  from = "/api/verify-cleanup"
+  to = "/.netlify/functions/verify-cleanup"
+  status = 200
+
+[[redirects]]
   from = "/api/verify-photo"
   to = "/.netlify/functions/verify-photo"
   status = 200

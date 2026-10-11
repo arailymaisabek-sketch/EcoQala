@@ -32,6 +32,7 @@ import { DashboardView } from './components/DashboardView';
 import { QuestsView } from './components/QuestsView';
 import { AiScannerView } from './components/AiScannerView';
 import { AiScannerModal } from './components/AiScannerModal';
+import { ProofVerificationModal } from './components/ProofVerificationModal';
 import { MarketplaceView } from './components/MarketplaceView';
 import { LeaderboardView } from './components/LeaderboardView';
 import { SolanaTxModal } from './components/SolanaTxModal';
@@ -495,11 +496,29 @@ export default function App() {
         )}
       </main>
 
-      {/* AI Eco Scanner Modal Window */}
-      {isAiModalOpen && (
+      {/* Proof Before/After Verification Modal for Quests */}
+      {isAiModalOpen && selectedQuestForModal && (
+        <ProofVerificationModal
+          quest={selectedQuestForModal}
+          city={selectedCity}
+          walletAddress={walletAddress}
+          onClose={() => {
+            setIsAiModalOpen(false);
+            setSelectedQuestForModal(null);
+          }}
+          onSuccessVerification={handleSuccessVerification}
+          getPhantomProvider={getPhantomProvider}
+          onOpenTxModal={(signature, memoText, ecoReward) => {
+            setTxModalData({ signature, memoText, ecoReward: ecoReward ?? selectedQuestForModal.rewardEco });
+          }}
+        />
+      )}
+
+      {/* General AI Eco Scanner Modal Window */}
+      {isAiModalOpen && !selectedQuestForModal && (
         <AiScannerModal
           city={selectedCity}
-          quest={selectedQuestForModal}
+          quest={null}
           walletAddress={walletAddress}
           onClose={() => setIsAiModalOpen(false)}
           onSuccessVerification={handleSuccessVerification}

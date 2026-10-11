@@ -179,3 +179,63 @@ export async function requestPhotoVerification(params: {
     isCompliant: false,
   };
 }
+
+/**
+ * Request real Before/After comparative AI verification
+ */
+export async function requestBeforeAfterVerification(
+  payload: import('../types/cleanupVerification').BeforeAfterVerificationPayload
+): Promise<import('../types/cleanupVerification').CleanupSubmissionRecord> {
+  try {
+    const res = await fetch('/api/verify-cleanup', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      return data;
+    }
+
+    const errData = await res.json().catch(() => null);
+    if (errData && errData.decision) {
+      return errData;
+    }
+  } catch (networkErr) {
+    console.warn('Network call to /api/verify-cleanup failed:', networkErr);
+  }
+
+  // Fallback: If server is unreachable, do NOT auto-approve. Route to manual review.
+  const now = Date.now();
+  return {
+    id: `offline-${now}`,
+    idempotencyKey: payload.idempotencyKey,
+    taskTitle: payload.taskTitle,
+    cityName: payload.cityName,
+    status: 'manual_review',
+    statusLabelKz: 'Қосымша тексеру қажет',
+    statusLabelRu: 'Требуется модерация',
+    statusLabelEn: 'Manual review required',
+    beforeHash: '',
+    afterHash: '',
+    decision: {
+      status: 'manual_review',
+      statusLabelKz: 'Қосымша тексеру қажет',
+      statusLabelRu: 'Требуется модерация',
+      statusLabelEn: 'Manual review required',
+      decisionReason: 'Network connection failed or server is temporarily unreachable. Submission queued for moderator review.',
+      decisionReasonKz: 'Сервермен байланыс орнатылмады. Өтінім модератордың қарауына жіберілді.',
+      decisionReasonRu: 'Связь с сервером прервана. Заявка отправлена на ручную модерацию.',
+      pointsAwarded: 0,
+      ruleViolations: ['NETWORK_UNAVAILABLE'],
+    },
+    aiProvider: 'none',
+    modelName: 'none',
+    pointsEarned: 0,
+    createdAt: now,
+    verifiedAt: now,
+  };
+}

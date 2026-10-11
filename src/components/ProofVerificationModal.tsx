@@ -12,16 +12,19 @@ import {
   AlertCircle,
   HelpCircle,
   FileWarning,
-  Trash2
+  Trash2,
+  Camera,
+  Sliders
 } from 'lucide-react';
 import { EcoQuest, KazakhstanCity, VerificationResult } from '../types';
 import { sendMemoTransaction } from '../services/solanaService';
 import { 
   validateImageFile, 
   fileToBase64, 
-  requestPhotoVerification 
+  requestBeforeAfterVerification 
 } from '../services/clientImageService';
-import { VerifyImageResult } from '../services/imageVerificationService';
+import { CleanupSubmissionRecord, ImageUploadItem } from '../types/cleanupVerification';
+import { ResizableBeforeAfter } from './ResizableBeforeAfter';
 
 interface ProofVerificationModalProps {
   quest: EcoQuest;
@@ -30,6 +33,7 @@ interface ProofVerificationModalProps {
   onClose: () => void;
   onSuccessVerification: (result: VerificationResult) => void;
   getPhantomProvider: () => any;
+  onOpenTxModal?: (signature: string, memoText: string, ecoReward?: number) => void;
 }
 
 export const ProofVerificationModal: React.FC<ProofVerificationModalProps> = ({
@@ -38,49 +42,74 @@ export const ProofVerificationModal: React.FC<ProofVerificationModalProps> = ({
   walletAddress,
   onClose,
   onSuccessVerification,
+  onOpenTxModal,
 }) => {
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [beforeFile, setBeforeFile] = useState<File | null>(null);
+  const [beforeUrl, setBeforeUrl] = useState<string | null>(null);
+  const [afterFile, setAfterFile] = useState<File | null>(null);
+  const [afterUrl, setAfterUrl] = useState<string | null>(null);
+
+  const [activeStep, setActiveStep] = useState<'before' | 'after' | 'compare'>('before');
   const [fileValidationErr, setFileValidationErr] = useState<string | null>(null);
 
   const [status, setStatus] = useState<
-    'idle' | 'checking_ai' | 'ai_rejected' | 'ai_needs_review' | 'recording_blockchain' | 'confirmed' | 'error'
+    'idle' | 'checking_ai' | 'approved' | 'manual_review' | 'rejected' | 'retake_required' | 'recording_blockchain' | 'confirmed' | 'error'
   >('idle');
 
-  const [aiResult, setAiResult] = useState<VerifyImageResult | null>(null);
+  const [submissionResult, setSubmissionResult] = useState<CleanupSubmissionRecord | null>(null);
   const [txSignature, setTxSignature] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBeforeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setFileValidationErr(null);
-    setAiResult(null);
-
     const file = e.target.files?.[0];
-    if (!file) {
-      setUploadedFile(null);
-      setPreviewUrl(null);
-      return;
-    }
+    if (!file) return;
 
     const check = await validateImageFile(file);
     if (!check.isValid) {
       setFileValidationErr(check.errorMessageKz || 'Файл форматы немесе өлшемі жарамсыз.');
-      setUploadedFile(null);
-      setPreviewUrl(null);
       return;
     }
 
-    setUploadedFile(file);
+    setBeforeFile(file);
     const dataUrl = await fileToBase64(file);
-    setPreviewUrl(dataUrl);
+    setBeforeUrl(dataUrl);
+    if (!afterUrl) {
+      setActiveStep('after');
+    } else {
+      setActiveStep('compare');
+    }
   };
 
-  const handleClear = () => {
-    setUploadedFile(null);
-    setPreviewUrl(null);
+  const handleAfterChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setFileValidationErr(null);
-    setAiResult(null);
-    setStatus('idle');
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const check = await validateImageFile(file);
+    if (!check.isValid) {
+      setFileValidationErr(check.errorMessageKz || 'Файл форматы немесе өлшемі жарамсыз.');
+      return;
+    }
+
+    setAfterFile(file);
+    const dataUrl = await fileToBase64(file);
+    setAfterUrl(dataUrl);
+    setActiveStep('compare');
+  };
+
+  const handleClearBefore = () => {
+    setBeforeFile(null);
+    setBeforeUrl(null);
+    setFileValidationErr(null);
+    setActiveStep('before');
+  };
+
+  const handleClearAfter = () => {
+    setAfterFile(null);
+    setAfterUrl(null);
+    setFileValidationErr(null);
+    setActiveStep('after');
   };
 
   const handleDirectTransactionWithoutAi = async () => {
@@ -89,7 +118,7 @@ export const ProofVerificationModal: React.FC<ProofVerificationModalProps> = ({
     setStatus('recording_blockchain');
 
     try {
-      const memoText = `[EcoQala] Тапсырма: ${quest.title} (${city.name}) | Сыйақы: +${quest.rewardEco} ECO | Транзакция: ИИ-сіз тікелей расталды`;
+      const memoText = `[EcoQala] Тапсырма: ${quest.title} (${city.name}) | Сыйақы: +${quest.rewardEco} ECO | Транзакция: Тікелей расталды`;
       const txResult = await sendMemoTransaction(memoText, {
         ecoReward: quest.rewardEco,
         walletAddress,
@@ -132,75 +161,92 @@ export const ProofVerificationModal: React.FC<ProofVerificationModalProps> = ({
     setFileValidationErr(null);
     setErrorMessage(null);
 
-    if (!uploadedFile || !previewUrl) {
-      setFileValidationErr('Алдымен фотосуретті жүктеңіз');
+    if (!beforeFile || !beforeUrl) {
+      setFileValidationErr('Тазалауға ДЕЙІНГІ (Before) фотосуретті жүктеңіз.');
+      setActiveStep('before');
+      return;
+    }
+
+    if (!afterFile || !afterUrl) {
+      setFileValidationErr('Тазалаудан КЕЙІНГІ (After) фотосуретті жүктеңіз.');
+      setActiveStep('after');
       return;
     }
 
     setStatus('checking_ai');
 
     try {
-      const verification = await requestPhotoVerification({
+      const beforeItem: ImageUploadItem = {
+        dataB64: beforeUrl,
+        mimeType: beforeFile.type,
+        fileName: beforeFile.name,
+        sizeBytes: beforeFile.size,
+      };
+
+      const afterItem: ImageUploadItem = {
+        dataB64: afterUrl,
+        mimeType: afterFile.type,
+        fileName: afterFile.name,
+        sizeBytes: afterFile.size,
+      };
+
+      const idempotencyKey = `proof-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+      const result = await requestBeforeAfterVerification({
+        idempotencyKey,
+        taskId: quest.id,
         taskTitle: quest.title,
         category: quest.category,
         cityName: city.name,
-        imageB64: previewUrl,
-        mimeType: uploadedFile.type,
-      });
-
-      setAiResult(verification);
-
-      if (verification.status === 'REJECTED') {
-        setStatus('ai_rejected');
-        return;
-      }
-
-      if (verification.status === 'NEEDS_REVIEW') {
-        setStatus('ai_needs_review');
-        return;
-      }
-
-      if (verification.status === 'NO_PHOTO') {
-        setFileValidationErr('Алдымен фотосуретті жүктеңіз');
-        setStatus('idle');
-        return;
-      }
-
-      // If approved, write to Solana devnet memo
-      setStatus('recording_blockchain');
-
-      const memoText = `[EcoQala] Тапсырма: ${quest.title} (${city.name}) | Сыйақы: +${quest.rewardEco} ECO | Фото тексеруден өтті`;
-      const txResult = await sendMemoTransaction(memoText, {
-        ecoReward: quest.rewardEco,
         walletAddress,
+        beforeImage: beforeItem,
+        afterImage: afterItem,
       });
 
-      if (!txResult.success) {
-        setErrorMessage(txResult.errorMessage || 'Solana желісіне жазу мүмкін болмады.');
-        setStatus('error');
-        return;
+      setSubmissionResult(result);
+
+      if (result.status === 'approved') {
+        setStatus('recording_blockchain');
+
+        const memoText = `[EcoQala] Тапсырма: ${quest.title} (${city.name}) | Сыйақы: +${quest.rewardEco} ECO | Фото тексеруден өтті`;
+        const txResult = await sendMemoTransaction(memoText, {
+          ecoReward: quest.rewardEco,
+          walletAddress,
+        });
+
+        if (!txResult.success) {
+          setErrorMessage(txResult.errorMessage || 'Solana желісіне жазу мүмкін болмады.');
+          setStatus('error');
+          return;
+        }
+
+        const sig = txResult.signature!;
+        setTxSignature(sig);
+
+        const res: VerificationResult = {
+          id: result.id,
+          questTitle: quest.title,
+          rewardEco: quest.rewardEco,
+          confidenceScore: Math.round((result.aiOutput?.confidence || 0.9) * 100),
+          analyzedObjects: result.aiOutput?.detectedAfterObjects || ['Тазартылған аумақ'],
+          estimatedWeightOrCount: `${quest.rewardEco} ECO`,
+          city: city.name,
+          timestamp: Date.now(),
+          solanaTxSignature: sig,
+          status: 'APPROVED',
+          statusLabelKz: result.statusLabelKz,
+          reasonKz: result.decision.decisionReasonKz,
+        };
+
+        setStatus('confirmed');
+        onSuccessVerification(res);
+      } else if (result.status === 'manual_review') {
+        setStatus('manual_review');
+      } else if (result.status === 'retake_required') {
+        setStatus('retake_required');
+      } else {
+        setStatus('rejected');
       }
-
-      const sig = txResult.signature!;
-      setTxSignature(sig);
-
-      const res: VerificationResult = {
-        id: `proof-${Date.now()}`,
-        questTitle: quest.title,
-        rewardEco: quest.rewardEco,
-        confidenceScore: verification.confidenceScore,
-        analyzedObjects: verification.detectedObjects,
-        estimatedWeightOrCount: verification.metricsSummary,
-        city: city.name,
-        timestamp: Date.now(),
-        solanaTxSignature: sig,
-        status: 'APPROVED',
-        statusLabelKz: 'Фото тексеруден өтті',
-        reasonKz: verification.reasonKz,
-      };
-
-      setStatus('confirmed');
-      onSuccessVerification(res);
     } catch (err: any) {
       console.error('Proof modal error:', err);
       setErrorMessage('Тексеру процесінде техникалық қате шықты.');
@@ -223,8 +269,8 @@ export const ProofVerificationModal: React.FC<ProofVerificationModalProps> = ({
               <Bot className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-sm font-bold text-stone-900">
-                AI Фото-тексеру
+              <div className="text-sm font-bold text-stone-900 flex items-center gap-1.5">
+                <span>AI ДЕЙІН/КЕЙІН Тексеру</span>
               </div>
               <div className="text-xs text-stone-500 flex items-center gap-1.5">
                 <MapPin className="w-3 h-3 text-emerald-600" />
@@ -266,38 +312,112 @@ export const ProofVerificationModal: React.FC<ProofVerificationModalProps> = ({
 
           {status === 'idle' && (
             <div className="space-y-3">
-              <label className="block text-xs font-bold text-stone-800">
-                Орындалған тапсырманың фотосуреті (міндетті):
-              </label>
+              {/* Tabs */}
+              <div className="flex items-center gap-1 p-1 bg-stone-100 rounded-xl text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setActiveStep('before')}
+                  className={`flex-1 py-1.5 rounded-lg transition-all ${
+                    activeStep === 'before' ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-500'
+                  }`}
+                >
+                  1. Дейін {beforeUrl && '✓'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveStep('after')}
+                  className={`flex-1 py-1.5 rounded-lg transition-all ${
+                    activeStep === 'after' ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-500'
+                  }`}
+                >
+                  2. Кейін {afterUrl && '✓'}
+                </button>
+                {beforeUrl && afterUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep('compare')}
+                    className={`flex-1 py-1.5 rounded-lg transition-all ${
+                      activeStep === 'compare' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-600'
+                    }`}
+                  >
+                    Салыстыру / Ресайз
+                  </button>
+                )}
+              </div>
 
-              {!previewUrl ? (
-                <label className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-stone-300 hover:border-emerald-500 rounded-2xl bg-stone-50/50 hover:bg-emerald-50/20 transition-all cursor-pointer group">
-                  <Upload className="w-8 h-8 text-stone-400 group-hover:text-emerald-600 mb-2 transition-colors" />
-                  <span className="text-xs font-bold text-stone-800 group-hover:text-emerald-700">
-                    Фотосуретті жүктеңіз
-                  </span>
-                  <span className="text-[11px] text-stone-500 mt-1">
-                    JPG, JPEG, PNG, WEBP (макс. 10 МБ)
-                  </span>
-                  <input
-                    type="file"
-                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
-                </label>
-              ) : (
-                <div className="relative aspect-video rounded-2xl overflow-hidden border border-stone-200 bg-stone-100">
-                  <img src={previewUrl} alt="Жүктелген фото" className="w-full h-full object-cover" />
-                  <div className="absolute top-2 right-2">
-                    <button
-                      type="button"
-                      onClick={handleClear}
-                      className="p-1.5 rounded-lg bg-black/60 hover:bg-red-600 text-white transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+              {activeStep === 'before' && (
+                <div>
+                  <label className="block text-xs font-bold text-stone-800 mb-2">
+                    1. Тазалауға ДЕЙІНГІ фотосурет (Before):
+                  </label>
+                  {!beforeUrl ? (
+                    <label className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-stone-300 hover:border-emerald-500 rounded-2xl bg-stone-50/50 hover:bg-emerald-50/20 transition-all cursor-pointer group">
+                      <Upload className="w-8 h-8 text-stone-400 group-hover:text-emerald-600 mb-2" />
+                      <span className="text-xs font-bold text-stone-800">Қоқыс бар аумақтың фотосын жүктеңіз</span>
+                      <span className="text-[11px] text-stone-500 mt-1">JPG, PNG, WEBP (макс. 10 МБ)</span>
+                      <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                        onChange={handleBeforeChange}
+                        className="hidden"
+                      />
+                    </label>
+                  ) : (
+                    <div className="relative aspect-video rounded-2xl overflow-hidden border border-stone-200 bg-stone-100">
+                      <img src={beforeUrl} alt="Before" className="w-full h-full object-cover" />
+                      <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/70 text-white text-[10px] font-bold">
+                        ДЕЙІН (BEFORE)
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleClearBefore}
+                        className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 hover:bg-red-600 text-white cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeStep === 'after' && (
+                <div>
+                  <label className="block text-xs font-bold text-stone-800 mb-2">
+                    2. Тазалаудан КЕЙІНГІ фотосурет (After):
+                  </label>
+                  {!afterUrl ? (
+                    <label className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-stone-300 hover:border-emerald-500 rounded-2xl bg-stone-50/50 hover:bg-emerald-50/20 transition-all cursor-pointer group">
+                      <Camera className="w-8 h-8 text-stone-400 group-hover:text-emerald-600 mb-2" />
+                      <span className="text-xs font-bold text-stone-800">Тазартылған аумақтың фотосын жүктеңіз</span>
+                      <span className="text-[11px] text-stone-500 mt-1">JPG, PNG, WEBP (макс. 10 МБ)</span>
+                      <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                        onChange={handleAfterChange}
+                        className="hidden"
+                      />
+                    </label>
+                  ) : (
+                    <div className="relative aspect-video rounded-2xl overflow-hidden border border-stone-200 bg-stone-100">
+                      <img src={afterUrl} alt="After" className="w-full h-full object-cover" />
+                      <div className="absolute top-2 right-2 px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-bold">
+                        КЕЙІН (AFTER)
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleClearAfter}
+                        className="absolute top-2 left-2 p-1.5 rounded-lg bg-black/60 hover:bg-red-600 text-white cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeStep === 'compare' && beforeUrl && afterUrl && (
+                <div className="space-y-2">
+                  <ResizableBeforeAfter beforeUrl={beforeUrl} afterUrl={afterUrl} />
                 </div>
               )}
             </div>
@@ -306,30 +426,37 @@ export const ProofVerificationModal: React.FC<ProofVerificationModalProps> = ({
           {status === 'checking_ai' && (
             <div className="py-8 text-center space-y-3">
               <div className="w-9 h-9 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
-              <div className="text-sm font-bold text-stone-900">Фото тексерілуде...</div>
-              <p className="text-xs text-stone-500">Gemini Vision AI фотоны тапсырмамен салыстыруда.</p>
+              <div className="text-sm font-bold text-stone-900">Фотосуреттер салыстырылуда...</div>
+              <p className="text-xs text-stone-500">Vision AI ДЕЙІН және КЕЙІН фотоларын талдауда.</p>
             </div>
           )}
 
-          {status === 'ai_rejected' && (
+          {status === 'rejected' && submissionResult && (
             <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-xs text-red-900 space-y-2">
               <div className="flex items-center gap-2 font-bold text-sm">
                 <FileWarning className="w-4 h-4 text-red-600" />
-                <span>Фото сәйкес келмейді</span>
+                <span>{submissionResult.statusLabelKz}</span>
               </div>
-              <p><strong>Себебі: </strong>{aiResult?.reasonKz}</p>
+              <p><strong>Себебі: </strong>{submissionResult.decision.decisionReasonKz}</p>
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <button
                   type="button"
                   onClick={handleDirectTransactionWithoutAi}
-                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
                 >
                   ⚡ ИИ-сіз транзакция жасау
                 </button>
                 <button
                   type="button"
-                  onClick={handleClear}
-                  className="px-3.5 py-1.5 rounded-xl bg-stone-200 hover:bg-stone-300 text-stone-800 font-bold"
+                  onClick={() => {
+                    setBeforeFile(null);
+                    setBeforeUrl(null);
+                    setAfterFile(null);
+                    setAfterUrl(null);
+                    setStatus('idle');
+                    setActiveStep('before');
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-stone-200 hover:bg-stone-300 text-stone-800 font-bold cursor-pointer"
                 >
                   Басқа фото жүктеу
                 </button>
@@ -337,29 +464,57 @@ export const ProofVerificationModal: React.FC<ProofVerificationModalProps> = ({
             </div>
           )}
 
-          {status === 'ai_needs_review' && (
+          {status === 'manual_review' && submissionResult && (
             <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-2">
               <div className="flex items-center gap-2 font-bold text-sm">
                 <HelpCircle className="w-4 h-4 text-amber-600" />
-                <span>Қосымша тексеру қажет</span>
+                <span>{submissionResult.statusLabelKz}</span>
               </div>
-              <p><strong>Түсіндірме: </strong>{aiResult?.reasonKz}</p>
+              <p><strong>Түсіндірме: </strong>{submissionResult.decision.decisionReasonKz}</p>
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <button
                   type="button"
                   onClick={handleDirectTransactionWithoutAi}
-                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
                 >
                   ⚡ ИИ-сіз транзакция жасау
                 </button>
                 <button
                   type="button"
-                  onClick={handleClear}
-                  className="px-3.5 py-1.5 rounded-xl bg-stone-900 text-white font-bold"
+                  onClick={() => {
+                    setBeforeFile(null);
+                    setBeforeUrl(null);
+                    setAfterFile(null);
+                    setAfterUrl(null);
+                    setStatus('idle');
+                    setActiveStep('before');
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-stone-900 text-white font-bold cursor-pointer"
                 >
                   Анығырақ фото жүктеу
                 </button>
               </div>
+            </div>
+          )}
+
+          {status === 'retake_required' && submissionResult && (
+            <div className="p-4 rounded-2xl bg-orange-50 border border-orange-200 text-xs text-orange-900 space-y-2">
+              <div className="font-bold text-sm">Сурет сапасы тым төмен</div>
+              <p>{submissionResult.decision.decisionReasonKz}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setBeforeFile(null);
+                  setBeforeUrl(null);
+                  setAfterFile(null);
+                  setAfterUrl(null);
+                  setStatus('idle');
+                  setActiveStep('before');
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-emerald-600 text-white font-bold cursor-pointer"
+              >
+                Қайта түсіру
+              </button>
             </div>
           )}
 
@@ -378,14 +533,14 @@ export const ProofVerificationModal: React.FC<ProofVerificationModalProps> = ({
                 <button
                   type="button"
                   onClick={handleDirectTransactionWithoutAi}
-                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 text-white font-bold"
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 text-white font-bold cursor-pointer"
                 >
                   ⚡ ИИ-сіз транзакция жасау
                 </button>
                 <button
                   type="button"
                   onClick={handleStartAIVerification}
-                  className="text-red-700 underline font-bold"
+                  className="text-red-700 underline font-bold cursor-pointer"
                 >
                   Қайталау
                 </button>
@@ -399,17 +554,36 @@ export const ProofVerificationModal: React.FC<ProofVerificationModalProps> = ({
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                 <span>Фото тексеруден өтті · Записано в блокчейн</span>
               </div>
+              {beforeUrl && afterUrl && (
+                <div className="pt-1">
+                  <ResizableBeforeAfter beforeUrl={beforeUrl} afterUrl={afterUrl} />
+                </div>
+              )}
               <p>Сыйақы қосылды: <strong>+{quest.rewardEco} ECO</strong></p>
               {txSignature && (
-                <a
-                  href={`https://explorer.solana.com/tx/${txSignature}?cluster=devnet`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500 text-white font-bold"
-                >
-                  <span>Посмотреть запись</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <a
+                    href={`https://explorer.solana.com/tx/${txSignature}?cluster=devnet`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold transition-colors"
+                  >
+                    <span>Посмотреть в Explorer</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                  {onOpenTxModal && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const memoText = `[EcoQala] Тапсырма: ${quest.title} (${city.name}) | Сыйақы: +${quest.rewardEco} ECO`;
+                        onOpenTxModal(txSignature, memoText, quest.rewardEco);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold transition-colors cursor-pointer"
+                    >
+                      <span>Квитанция (Memo)</span>
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -421,30 +595,39 @@ export const ProofVerificationModal: React.FC<ProofVerificationModalProps> = ({
             <div className="w-full flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <button
                 type="button"
-                onClick={handleDirectTransactionWithoutAi}
-                className="flex-1 py-3 px-5 rounded-2xl font-bold text-xs bg-emerald-500 hover:bg-emerald-600 text-white cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+                onClick={handleStartAIVerification}
+                disabled={!beforeUrl || !afterUrl}
+                className={`flex-1 py-3 px-5 rounded-2xl font-bold text-xs flex items-center justify-center gap-1.5 ${
+                  beforeUrl && afterUrl
+                    ? 'bg-emerald-500 hover:bg-emerald-600 text-white cursor-pointer shadow-sm'
+                    : 'bg-stone-200 text-stone-400 cursor-not-allowed'
+                }`}
               >
                 <Sparkles className="w-4 h-4" />
-                <span>ИИ-сіз транзакция жасау (+{quest.rewardEco} ECO)</span>
+                <span>
+                  {beforeUrl && afterUrl
+                    ? 'AI арқылы салыстырып тексеру'
+                    : !beforeUrl
+                    ? '1. ДЕЙІН фотосын жүктеңіз'
+                    : '2. КЕЙІН фотосын жүктеңіз'}
+                </span>
               </button>
-              {uploadedFile && (
-                <button
-                  type="button"
-                  onClick={handleStartAIVerification}
-                  className="py-3 px-4 rounded-2xl font-bold text-xs bg-stone-100 hover:bg-stone-200 text-stone-700 cursor-pointer flex items-center justify-center gap-1 shrink-0"
-                >
-                  <Bot className="w-4 h-4 text-emerald-600" />
-                  <span>AI тексерумен</span>
-                </button>
-              )}
+
+              <button
+                type="button"
+                onClick={handleDirectTransactionWithoutAi}
+                className="py-3 px-4 rounded-2xl font-bold text-xs bg-stone-100 hover:bg-stone-200 text-stone-700 cursor-pointer flex items-center justify-center gap-1 shrink-0"
+              >
+                <span>⚡ ИИ-сіз транзакция</span>
+              </button>
             </div>
           )}
 
-          {(status === 'confirmed' || status === 'ai_rejected' || status === 'ai_needs_review' || status === 'error') && (
+          {(status === 'confirmed' || status === 'rejected' || status === 'manual_review' || status === 'retake_required' || status === 'error') && (
             <button
               type="button"
               onClick={onClose}
-              className="w-full py-3 px-4 rounded-2xl bg-stone-900 text-white font-bold text-xs"
+              className="w-full py-3 px-4 rounded-2xl bg-stone-900 text-white font-bold text-xs cursor-pointer"
             >
               Жабу
             </button>

@@ -62,6 +62,31 @@ async function startServer() {
     }
   });
 
+  // API endpoint for Before/After cleanup verification
+  app.post(['/api/verify-cleanup', '/.netlify/functions/verify-cleanup'], async (req, res) => {
+    try {
+      const { verifyCleanupSubmission } = await import('./src/services/verificationEngine');
+      const result = await verifyCleanupSubmission(req.body);
+      return res.json(result);
+    } catch (err: any) {
+      console.error('API /api/verify-cleanup error:', err);
+      return res.status(500).json({
+        status: 'manual_review',
+        statusLabelKz: 'Қосымша тексеру қажет',
+        statusLabelRu: 'Требуется модерация',
+        statusLabelEn: 'Manual review required',
+        decision: {
+          status: 'manual_review',
+          decisionReason: `Server error: ${err?.message || 'internal error'}`,
+          decisionReasonKz: 'Серверлік өңдеу кезінде қате орын алды.',
+          decisionReasonRu: 'Внутренняя ошибка сервера.',
+          pointsAwarded: 0,
+          ruleViolations: ['INTERNAL_SERVER_ERROR'],
+        },
+      });
+    }
+  });
+
   // Mount Vite middleware in development
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
