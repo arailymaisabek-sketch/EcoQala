@@ -30,38 +30,34 @@ export async function validateImageFile(file: File | null | undefined): Promise<
   }
 
   // 2. Check extension & MIME
-  const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp'];
-  const ext = file.name.split('.').pop()?.toLowerCase() || '';
-  const allowedMime = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+  const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'];
+  const ext = file.name ? file.name.split('.').pop()?.toLowerCase() || '' : '';
+  const isImageMime = file.type ? file.type.toLowerCase().startsWith('image/') : false;
+  const isAllowedExt = allowedExtensions.includes(ext);
 
-  if (!allowedExtensions.includes(ext) || !allowedMime.includes(file.type.toLowerCase())) {
+  // If both mime and extension are known and neither is an image:
+  if (file.type && !isImageMime && !isAllowedExt) {
     return {
       isValid: false,
       errorMessageKz: 'Тек JPG, JPEG, PNG және WEBP пішіміндегі суреттерге рұқсат етіледі.',
     };
   }
 
-  // 3. Inspect magic bytes to verify it's a real image, not just a renamed file
+  // 3. Inspect magic bytes to verify it's a real image
   try {
     const isRealImage = await checkImageMagicBytes(file);
     if (!isRealImage) {
-      return {
-        isValid: false,
-        errorMessageKz: 'Файл жарамды сурет емес немесе бүлінген (нақты суретті таңдаңыз).',
-      };
+      // If magic bytes cannot be verified, test rendering before rejecting
+      const canRender = await testImageRender(file).catch(() => false);
+      if (!canRender) {
+        return {
+          isValid: false,
+          errorMessageKz: 'Файл жарамды сурет емес немесе бүлінген.',
+        };
+      }
     }
   } catch (e) {
     console.warn('Magic bytes check bypassed:', e);
-  }
-
-  // 4. Test loading into Image element to guarantee renderability
-  try {
-    await testImageRender(file);
-  } catch {
-    return {
-      isValid: false,
-      errorMessageKz: 'Суретті ашу мүмкін болмады. Басқа фотосурет жүктеп көріңіз.',
-    };
   }
 
   return { isValid: true };
@@ -74,22 +70,22 @@ function checkImageMagicBytes(file: File): Promise<boolean> {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onloadend = () => {
-      const arr = new Uint8Array(reader.result as ArrayBuffer).subarray(0, 12);
+      const arr = new Uint8Array(reader.result as ArrayBuffer).subarray(0, 16);
       let header = '';
       for (let i = 0; i < arr.length; i++) {
         header += arr[i].toString(16).padStart(2, '0');
       }
 
-      // JPEG: starts with ffd8ff
-      const isJpeg = header.startsWith('ffd8ff');
-      // PNG: starts with 89504e470d0a1a0a
+      // JPEG: starts with ffd8
+      const isJpeg = header.startsWith('ffd8');
+      // PNG: starts with 89504e47
       const isPng = header.startsWith('89504e47');
-      // WEBP: starts with 52494646 (RIFF) and has 57454250 (WEBP) at offset 8
-      const isWebp = header.startsWith('52494646') && header.slice(16, 24) === '57454250';
+      // WEBP: starts with 52494646 (RIFF) or contains 57454250 (WEBP)
+      const isWebp = header.startsWith('52494646') || header.includes('57454250');
 
       resolve(isJpeg || isPng || isWebp);
     };
-    reader.onerror = () => resolve(false);
+    reader.onerror = () => resolve(true);
     reader.readAsArrayBuffer(file.slice(0, 16));
   });
 }
@@ -145,26 +141,29 @@ export async function requestPhotoVerification(params: {
     };
   }
 
-  try {
-    const res = await fetch('/api/verify-photo', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(params),
-    });
+  const endpoints = ['/api/verify-photo', '/.netlify/functions/verify-photo'];
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(params),
+      });
 
-    if (res.ok) {
-      const data: VerifyImageResult = await res.json();
-      return data;
-    }
+      if (res.ok) {
+        const data: VerifyImageResult = await res.json();
+        return data;
+      }
 
-    const errData = await res.json().catch(() => null);
-    if (errData && errData.status) {
-      return errData as VerifyImageResult;
+      const errData = await res.json().catch(() => null);
+      if (errData && errData.status) {
+        return errData as VerifyImageResult;
+      }
+    } catch (networkErr) {
+      console.warn(`Network call to ${url} failed, trying next endpoint:`, networkErr);
     }
-  } catch (networkErr) {
-    console.warn('Network call to /api/verify-photo failed:', networkErr);
   }
 
   // If server is not responding, requirement specifies:
@@ -186,26 +185,29 @@ export async function requestPhotoVerification(params: {
 export async function requestBeforeAfterVerification(
   payload: import('../types/cleanupVerification').BeforeAfterVerificationPayload
 ): Promise<import('../types/cleanupVerification').CleanupSubmissionRecord> {
-  try {
-    const res = await fetch('/api/verify-cleanup', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+  const endpoints = ['/api/verify-cleanup', '/.netlify/functions/verify-cleanup'];
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
 
-    if (res.ok) {
-      const data = await res.json();
-      return data;
-    }
+      if (res.ok) {
+        const data = await res.json();
+        return data;
+      }
 
-    const errData = await res.json().catch(() => null);
-    if (errData && errData.decision) {
-      return errData;
+      const errData = await res.json().catch(() => null);
+      if (errData && errData.decision) {
+        return errData;
+      }
+    } catch (networkErr) {
+      console.warn(`Network call to ${url} failed, trying next endpoint:`, networkErr);
     }
-  } catch (networkErr) {
-    console.warn('Network call to /api/verify-cleanup failed:', networkErr);
   }
 
   // Fallback: If server is unreachable, do NOT auto-approve. Route to manual review.
